@@ -170,14 +170,14 @@ export default function FabricCanvas() {
         fontSize: 16,
         fill: "#1e1e1e",
         fontFamily: "sans-serif",
-        editable: false,
+        editable: true,
         splitByGrapheme: false,
       });
 
       const group = new Group([rect, text], {
         left: x,
         top: y,
-        subTargetCheck: false,
+        subTargetCheck: true,
       });
 
       stampAndSync(group, "sticky-note", {
@@ -269,6 +269,11 @@ export default function FabricCanvas() {
         canvas.discardActiveObject();
         canvas.renderAll();
       }
+
+      // Skip shortcuts if a text object is being edited inline
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const activeObj = canvas.getActiveObject() as any;
+      if (activeObj?.isEditing) return;
 
       const shortcuts: Record<string, string> = {
         v: "select", s: "sticky-note", r: "rectangle",
@@ -568,14 +573,24 @@ export default function FabricCanvas() {
       }, 50)
     );
 
-    // Sync standalone text edits to storage
+    // Sync text edits (standalone text + inline sticky note editing) to storage
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on("text:changed", (e: any) => {
       if (isSyncingFromRemote.current || !e.target) return;
+      const textTarget = e.target as Textbox;
       const obj = e.target as unknown as FabricWithData;
-      if (!obj.data?.id) return;
-      if (obj.data.type === "text") {
-        throttledUpdate(obj.data.id, { text: (e.target as IText).text ?? "" });
+
+      // Standalone text tool
+      if (obj.data?.id && obj.data.type === "text") {
+        throttledUpdate(obj.data.id, { text: textTarget.text ?? "" });
+        return;
+      }
+
+      // Inline sticky note editing: the Textbox is a child of the Group,
+      // so find the parent Group's data.id
+      const parent = textTarget.group as unknown as FabricWithData | undefined;
+      if (parent?.data?.id && parent.data.type === "sticky-note") {
+        throttledUpdate(parent.data.id, { text: textTarget.text ?? "" });
       }
     });
 
@@ -698,13 +713,13 @@ export default function FabricCanvas() {
               fontSize: Number(o.fontSize ?? 16),
               fill: String(o.textColor ?? "#1e1e1e"),
               fontFamily: "sans-serif",
-              editable: false,
+              editable: true,
               splitByGrapheme: false,
             });
             newObj = new Group([rect, textbox], {
               left: Number(o.left), top: Number(o.top),
               angle: Number(o.angle ?? 0),
-              subTargetCheck: false,
+              subTargetCheck: true,
             });
           }
 
