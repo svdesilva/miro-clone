@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import {
   Canvas,
   Rect,
   Circle,
   Path,
   IText,
+  Textbox,
   Group,
   Shadow,
   PencilBrush,
@@ -30,6 +31,8 @@ import { STICKY_NOTE_COLORS } from "@/lib/colors";
 import type { CanvasObject } from "@/types/canvas";
 import type { CanvasObjectLson } from "@/liveblocks.config";
 import LiveCursors from "./LiveCursors";
+import StickyNoteEditor from "./StickyNoteEditor";
+import type { EditingStickyState } from "./StickyNoteEditor";
 
 interface FabricWithData {
   data?: { id: string; type: string };
@@ -40,6 +43,24 @@ interface FabricWithData {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   set: (props: Record<string, any>) => void;
   setCoords: () => void;
+}
+
+/** Convert canvas coordinates to screen coordinates (accounting for zoom + pan) */
+function canvasToScreen(
+  canvas: Canvas,
+  canvasX: number,
+  canvasY: number,
+  canvasWidth: number,
+  canvasHeight: number
+) {
+  const zoom = canvas.getZoom();
+  const vpt = canvas.viewportTransform;
+  return {
+    screenX: canvasX * zoom + (vpt?.[4] ?? 0),
+    screenY: canvasY * zoom + (vpt?.[5] ?? 0),
+    screenWidth: canvasWidth * zoom,
+    screenHeight: canvasHeight * zoom,
+  };
 }
 
 export default function FabricCanvas() {
@@ -55,6 +76,11 @@ export default function FabricCanvas() {
   const strokeColorRef = useRef(strokeColor);
   const fillColorRef = useRef(fillColor);
   const strokeWidthRef = useRef(strokeWidth);
+
+  // Sticky note editing overlay state
+  const [editingSticky, setEditingSticky] = useState<EditingStickyState | null>(null);
+  const editingStickyRef = useRef(editingSticky);
+  useEffect(() => { editingStickyRef.current = editingSticky; }, [editingSticky]);
 
   const updatePresence = useUpdateMyPresence();
   const objects = useStorage((root) => root.objects);
@@ -126,6 +152,7 @@ export default function FabricCanvas() {
       const color = STICKY_NOTE_COLORS[Math.floor(Math.random() * STICKY_NOTE_COLORS.length)];
       const w = 200;
       const h = 200;
+      const padding = 10;
 
       const rect = new Rect({
         width: w,
@@ -136,19 +163,25 @@ export default function FabricCanvas() {
         shadow: new Shadow({ color: "rgba(0,0,0,0.15)", blur: 8, offsetX: 2, offsetY: 2 }),
       });
 
-      const text = new IText("", {
-        left: 10,
-        top: 10,
-        width: w - 20,
+      const text = new Textbox("", {
+        left: padding,
+        top: padding,
+        width: w - padding * 2,
         fontSize: 16,
         fill: "#1e1e1e",
         fontFamily: "sans-serif",
+        editable: false,
+        splitByGrapheme: false,
       });
 
-      const group = new Group([rect, text], { left: x, top: y });
+      const group = new Group([rect, text], {
+        left: x,
+        top: y,
+        subTargetCheck: false,
+      });
 
       stampAndSync(group, "sticky-note", {
-        text: "Note...",
+        text: "",
         backgroundColor: color,
         textColor: "#1e1e1e",
         fontSize: 16,
@@ -158,6 +191,42 @@ export default function FabricCanvas() {
     },
     [stampAndSync]
   );
+
+  /** Commit the sticky note text edit: update Fabric object + sync to Liveblocks */
+  const commitStickyEdit = useCallback(() => {
+    const editing = editingStickyRef.current;
+    if (!editing || !fabricRef.current) return;
+
+    const canvas = fabricRef.current;
+    const { objectId, text } = editing;
+
+    // Find the sticky Group on the canvas by its data.id
+    const allObjs = canvas.getObjects() as unknown as FabricWithData[];
+    const group = allObjs.find(
+      (o) => o.data?.id === objectId && o.data?.type === "sticky-note"
+    ) as unknown as Group | undefined;
+
+    if (group) {
+      const items = group.getObjects?.() ?? [];
+      const textObj = items.find((o) => o.type === "textbox") as Textbox | undefined;
+      if (textObj) {
+        const trimmed = text.trim();
+        textObj.set({ text: trimmed, opacity: 1 });
+      }
+      group.set({ dirty: true });
+      canvas.renderAll();
+    }
+
+    // Sync text to Liveblocks
+    throttledUpdate(objectId, { text: text.trim() });
+
+    // Close the overlay
+    setEditingSticky(null);
+  }, [throttledUpdate]);
+
+  // Keep a ref to commitStickyEdit so canvas event handlers can call it
+  const commitStickyEditRef = useRef(commitStickyEdit);
+  useEffect(() => { commitStickyEditRef.current = commitStickyEdit; }, [commitStickyEdit]);
 
   useEffect(() => {
     if (!canvasElRef.current || fabricRef.current) return;
@@ -229,6 +298,8 @@ export default function FabricCanvas() {
       const native = e.e as MouseEvent;
 
       if (spaceDown || native.button === 1) {
+        // Close sticky editor on pan
+        if (editingStickyRef.current) commitStickyEditRef.current?.();
         isPanning = true;
         lastPanPoint = { x: native.clientX, y: native.clientY };
         canvas.defaultCursor = "grabbing";
@@ -423,6 +494,9 @@ export default function FabricCanvas() {
     });
 
     canvas.on("mouse:wheel", (e) => {
+      // Close sticky editor on zoom
+      if (editingStickyRef.current) commitStickyEditRef.current?.();
+
       const we = e.e as WheelEvent;
       let zoom = canvas.getZoom();
       zoom *= 0.999 ** we.deltaY;
@@ -434,7 +508,7 @@ export default function FabricCanvas() {
 
     canvas.on("mouse:out", () => updatePresence({ cursor: null }));
 
-    // Double-click to edit sticky note text
+    // Double-click to edit sticky note text via HTML overlay
     canvas.on("mouse:dblclick", (e) => {
       if (!e.target) return;
       const obj = e.target as unknown as FabricWithData;
@@ -442,81 +516,42 @@ export default function FabricCanvas() {
 
       const group = e.target as Group;
       const items = group.getObjects?.() ?? [];
-      const textObj = items.find((o) => o.type === "i-text") as IText | undefined;
+      const textObj = items.find((o) => o.type === "textbox") as Textbox | undefined;
+      const rectObj = items.find((o) => o.type === "rect") as Rect | undefined;
       if (!textObj) return;
 
-      // Remove the group, add individual items to canvas
+      // Get group's canvas-space bounding box
       const groupLeft = group.left ?? 0;
       const groupTop = group.top ?? 0;
-      const groupAngle = group.angle ?? 0;
+      const groupWidth = (group.width ?? 200) * (group.scaleX ?? 1);
+      const groupHeight = (group.height ?? 200) * (group.scaleY ?? 1);
 
-      canvas.remove(group);
+      // Convert to screen coordinates
+      const zoom = canvas.getZoom();
+      const { screenX, screenY, screenWidth, screenHeight } =
+        canvasToScreen(canvas, groupLeft, groupTop, groupWidth, groupHeight);
 
-      const rectObj = items.find((o) => o.type === "rect") as Rect | undefined;
-      if (rectObj) {
-        rectObj.set({ left: groupLeft, top: groupTop, angle: groupAngle, selectable: false, evented: false });
-        (rectObj as unknown as FabricWithData).data = { id: obj.data!.id, type: "__sticky-bg" };
-        canvas.add(rectObj);
-      }
+      const bgColor = (rectObj?.fill as string) ?? "#fef08a";
+      const txtColor = (textObj.fill as string) ?? "#1e1e1e";
+      const fontSize = textObj.fontSize ?? 16;
 
-      textObj.set({
-        left: groupLeft + 10,
-        top: groupTop + 10,
-        angle: groupAngle,
-      });
-      (textObj as unknown as FabricWithData).data = { id: obj.data!.id, type: "__sticky-text" };
-      canvas.add(textObj);
-      canvas.setActiveObject(textObj);
-      textObj.enterEditing();
-      textObj.selectAll();
+      // Hide the Fabric text while the overlay is visible
+      textObj.set({ opacity: 0 });
+      canvas.discardActiveObject();
       canvas.renderAll();
 
-      // When editing is done, re-group them
-      const onDeselect = () => {
-        textObj.exitEditing();
-        const newText = textObj.text ?? "";
-
-        canvas.remove(rectObj as unknown as Parameters<typeof canvas.remove>[0]);
-        canvas.remove(textObj as unknown as Parameters<typeof canvas.remove>[0]);
-
-        // Recreate the group
-        const newRect = new Rect({
-          width: rectObj?.width ?? 200,
-          height: rectObj?.height ?? 200,
-          fill: rectObj?.fill as string ?? "#fef08a",
-          rx: 4, ry: 4,
-          shadow: new Shadow({ color: "rgba(0,0,0,0.15)", blur: 8, offsetX: 2, offsetY: 2 }),
-        });
-        const newIText = new IText(newText, {
-          left: 10, top: 10,
-          width: (rectObj?.width ?? 200) - 20,
-          fontSize: textObj.fontSize ?? 16,
-          fill: textObj.fill as string ?? "#1e1e1e",
-          fontFamily: "sans-serif",
-        });
-        const newGroup = new Group([newRect, newIText], {
-          left: groupLeft, top: groupTop, angle: groupAngle,
-        });
-        (newGroup as unknown as FabricWithData).data = { id: obj.data!.id, type: "sticky-note" };
-        canvas.add(newGroup);
-        canvas.setActiveObject(newGroup);
-        canvas.renderAll();
-
-        // Sync the updated text to Liveblocks
-        throttledUpdate(obj.data!.id, {
-          text: newText,
-        });
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        canvas.off("selection:cleared", onDeselect as any);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        canvas.off("selection:updated", onDeselect as any);
-      };
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      canvas.on("selection:cleared", onDeselect as any);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      canvas.on("selection:updated", onDeselect as any);
+      setEditingSticky({
+        objectId: obj.data!.id,
+        text: textObj.text ?? "",
+        screenX,
+        screenY,
+        screenWidth,
+        screenHeight,
+        backgroundColor: bgColor,
+        textColor: txtColor,
+        fontSize,
+        zoom,
+      });
     });
 
     canvas.on(
@@ -538,7 +573,7 @@ export default function FabricCanvas() {
     canvas.on("text:changed", (e: any) => {
       if (isSyncingFromRemote.current || !e.target) return;
       const obj = e.target as unknown as FabricWithData;
-      if (!obj.data?.id || obj.data.type?.startsWith("__sticky")) return;
+      if (!obj.data?.id) return;
       if (obj.data.type === "text") {
         throttledUpdate(obj.data.id, { text: (e.target as IText).text ?? "" });
       }
@@ -561,6 +596,8 @@ export default function FabricCanvas() {
     });
 
     const handleResize = () => {
+      // Close sticky editor on resize
+      if (editingStickyRef.current) commitStickyEditRef.current?.();
       canvas.setDimensions({ width: window.innerWidth, height: window.innerHeight });
       canvas.renderAll();
     };
@@ -612,6 +649,19 @@ export default function FabricCanvas() {
 
         if (existing) {
           existing.set({ left: plain.x, top: plain.y, angle: plain.angle });
+
+          // Update sticky note text from remote changes
+          if (plain.type === "sticky-note" && editingStickyRef.current?.objectId !== id) {
+            const group = existing as unknown as Group;
+            const items = group.getObjects?.() ?? [];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const textObj = items.find((o: any) => o.type === "textbox") as Textbox | undefined;
+            if (textObj && plain.text !== undefined) {
+              textObj.set({ text: String(plain.text) });
+              group.set({ dirty: true });
+            }
+          }
+
           existing.setCoords();
           currentIds.delete(id);
         } else {
@@ -633,20 +683,28 @@ export default function FabricCanvas() {
           } else if (args.type === "sticky-note") {
             const o = args.options;
             const bg = String(o.backgroundColor ?? "#fef08a");
+            const w = Number(o.width ?? 200);
+            const h = Number(o.height ?? 200);
+            const padding = 10;
+
             const rect = new Rect({
-              width: Number(o.width), height: Number(o.height),
+              width: w, height: h,
               fill: bg, rx: 4, ry: 4,
+              shadow: new Shadow({ color: "rgba(0,0,0,0.15)", blur: 8, offsetX: 2, offsetY: 2 }),
             });
-            const itext = new IText(String(o.text ?? ""), {
-              left: 10, top: 10,
-              width: Number(o.width) - 20,
+            const textbox = new Textbox(String(o.text ?? ""), {
+              left: padding, top: padding,
+              width: w - padding * 2,
               fontSize: Number(o.fontSize ?? 16),
               fill: String(o.textColor ?? "#1e1e1e"),
               fontFamily: "sans-serif",
+              editable: false,
+              splitByGrapheme: false,
             });
-            newObj = new Group([rect, itext], {
+            newObj = new Group([rect, textbox], {
               left: Number(o.left), top: Number(o.top),
               angle: Number(o.angle ?? 0),
+              subTargetCheck: false,
             });
           }
 
@@ -669,6 +727,15 @@ export default function FabricCanvas() {
   return (
     <div className="w-full h-full relative overflow-hidden">
       <canvas ref={canvasElRef} />
+      {editingSticky && (
+        <StickyNoteEditor
+          editingSticky={editingSticky}
+          onTextChange={(newText) =>
+            setEditingSticky((prev) => prev ? { ...prev, text: newText } : null)
+          }
+          onCommit={commitStickyEdit}
+        />
+      )}
       <LiveCursors />
     </div>
   );

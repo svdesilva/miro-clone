@@ -44,7 +44,7 @@ export function serializeFabricObject(obj: any, type: string): Partial<CanvasObj
       };
     case "sticky-note": {
       const items: any[] = obj.getObjects?.() ?? [];
-      const textObj = items.find((o) => o.type === "i-text");
+      const textObj = items.find((o) => o.type === "textbox" || o.type === "i-text");
       const rectObj = items[0];
       return {
         ...base,
