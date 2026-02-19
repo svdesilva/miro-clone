@@ -434,6 +434,91 @@ export default function FabricCanvas() {
 
     canvas.on("mouse:out", () => updatePresence({ cursor: null }));
 
+    // Double-click to edit sticky note text
+    canvas.on("mouse:dblclick", (e) => {
+      if (!e.target) return;
+      const obj = e.target as unknown as FabricWithData;
+      if (obj.data?.type !== "sticky-note") return;
+
+      const group = e.target as Group;
+      const items = group.getObjects?.() ?? [];
+      const textObj = items.find((o) => o.type === "i-text") as IText | undefined;
+      if (!textObj) return;
+
+      // Remove the group, add individual items to canvas
+      const groupLeft = group.left ?? 0;
+      const groupTop = group.top ?? 0;
+      const groupAngle = group.angle ?? 0;
+
+      canvas.remove(group);
+
+      const rectObj = items.find((o) => o.type === "rect") as Rect | undefined;
+      if (rectObj) {
+        rectObj.set({ left: groupLeft, top: groupTop, angle: groupAngle, selectable: false, evented: false });
+        (rectObj as unknown as FabricWithData).data = { id: obj.data!.id, type: "__sticky-bg" };
+        canvas.add(rectObj);
+      }
+
+      textObj.set({
+        left: groupLeft + 10,
+        top: groupTop + 10,
+        angle: groupAngle,
+      });
+      (textObj as unknown as FabricWithData).data = { id: obj.data!.id, type: "__sticky-text" };
+      canvas.add(textObj);
+      canvas.setActiveObject(textObj);
+      textObj.enterEditing();
+      textObj.selectAll();
+      canvas.renderAll();
+
+      // When editing is done, re-group them
+      const onDeselect = () => {
+        textObj.exitEditing();
+        const newText = textObj.text ?? "";
+
+        canvas.remove(rectObj as unknown as Parameters<typeof canvas.remove>[0]);
+        canvas.remove(textObj as unknown as Parameters<typeof canvas.remove>[0]);
+
+        // Recreate the group
+        const newRect = new Rect({
+          width: rectObj?.width ?? 200,
+          height: rectObj?.height ?? 200,
+          fill: rectObj?.fill as string ?? "#fef08a",
+          rx: 4, ry: 4,
+          shadow: new Shadow({ color: "rgba(0,0,0,0.15)", blur: 8, offsetX: 2, offsetY: 2 }),
+        });
+        const newIText = new IText(newText, {
+          left: 10, top: 10,
+          width: (rectObj?.width ?? 200) - 20,
+          fontSize: textObj.fontSize ?? 16,
+          fill: textObj.fill as string ?? "#1e1e1e",
+          fontFamily: "sans-serif",
+        });
+        const newGroup = new Group([newRect, newIText], {
+          left: groupLeft, top: groupTop, angle: groupAngle,
+        });
+        (newGroup as unknown as FabricWithData).data = { id: obj.data!.id, type: "sticky-note" };
+        canvas.add(newGroup);
+        canvas.setActiveObject(newGroup);
+        canvas.renderAll();
+
+        // Sync the updated text to Liveblocks
+        throttledUpdate(obj.data!.id, {
+          text: newText,
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        canvas.off("selection:cleared", onDeselect as any);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        canvas.off("selection:updated", onDeselect as any);
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvas.on("selection:cleared", onDeselect as any);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      canvas.on("selection:updated", onDeselect as any);
+    });
+
     canvas.on(
       "object:modified",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -447,6 +532,17 @@ export default function FabricCanvas() {
         );
       }, 50)
     );
+
+    // Sync standalone text edits to storage
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    canvas.on("text:changed", (e: any) => {
+      if (isSyncingFromRemote.current || !e.target) return;
+      const obj = e.target as unknown as FabricWithData;
+      if (!obj.data?.id || obj.data.type?.startsWith("__sticky")) return;
+      if (obj.data.type === "text") {
+        throttledUpdate(obj.data.id, { text: (e.target as IText).text ?? "" });
+      }
+    });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     canvas.on("path:created", (e: any) => {
