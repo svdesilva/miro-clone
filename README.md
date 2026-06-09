@@ -1,25 +1,37 @@
 # Collaborative whiteboard (real-time)
 
-Production-minded **real-time collaborative canvas** with authentication, organization of boards, and concurrent editing. Intended as a **reference implementation** for how I scope platform product work: clear problem statement, explicit tradeoffs, and operable local setup.
+I built this to sharpen how I **scope collaboration products** end-to-end: crisp problem framing, explicit tradeoffs, and a codebase that is pleasant for engineers to extend.
+
+If you are evaluating how I work with eng partners, start with **Tradeoffs** and the docs in `/docs`.
 
 ---
 
 ## Executive summary
 
-**Problem:** Teams need a low-friction surface to align visually in remote or hybrid workflows, with **consistent shared state** and **identifiable participants**.
+**Problem:** Remote and hybrid teams still lose alignment on visual work. Screensharing is broadcast-only; async screenshots go stale; “everyone edits a file” breaks down under concurrency.
 
-**Product scope (this repo):** Authenticated users can create and manage boards, join a shared session, see collaborator presence, and edit vector canvas content with undo/redo. Out of scope for v1 is enterprise admin, compliance packaging, and mobile-native clients — documented under [Roadmap](#roadmap).
+**What shipped here:** Authenticated users can create boards, collaborate in real time with presence, and edit a shared canvas (vector tooling, undo/redo). The focus is **reliable shared state** and **identifiable participants**, not feature parity with mature whiteboard incumbents.
 
-**Technical approach:** Next.js application, Clerk for identity, Liveblocks for realtime rooms and presence, Fabric.js for canvas manipulation, Zustand for client state, Tailwind and shadcn/ui for UI.
+**What is intentionally not in v1:** Enterprise admin, compliance packaging, mobile-native clients, deep enterprise IdP edge cases — see [`ROADMAP.md`](ROADMAP.md).
+
+**Stack:** Next.js, Clerk (identity), Liveblocks (rooms + presence), Fabric.js (canvas), Zustand, Tailwind + shadcn/ui.
 
 ---
 
-## Users and primary jobs-to-be-done
+## Demo
+
+Hosted demo: **coming soon** (Vercel preview + production split). Until then, local run is the fastest way to evaluate behavior.
+
+If you want a guided walkthrough, open an issue with your use case; I will prioritize a short Loom-style recording once hosting is wired.
+
+---
+
+## Users and jobs-to-be-done
 
 | User | Job |
 |------|-----|
 | Facilitator | Spin up a board quickly, invite collaborators, sketch structure live. |
-| Contributor | Join an existing board without install friction; trust that edits reconcile. |
+| Contributor | Join without install friction; trust edits reconcile under concurrency. |
 
 ---
 
@@ -27,12 +39,12 @@ Production-minded **real-time collaborative canvas** with authentication, organi
 
 ```
 Browser (Next.js)
-  ├── Clerk — session, user identity
+  ├── Clerk — session + identity
   ├── Liveblocks — room, presence, shared document sync
-  └── Fabric.js — canvas scene graph, drawing tools
+  └── Fabric.js — canvas scene graph + tools
 ```
 
-Data flows are **explicitly split**: identity and billing-adjacent concerns stay in Clerk; **ephemeral collaborative state** is coordinated through Liveblocks. That separation keeps the security story reviewable under standard SaaS patterns.
+Identity stays in Clerk; **ephemeral collaborative state** is coordinated through Liveblocks. That separation keeps reviews straightforward: auth and billing-adjacent concerns do not get entangled with canvas CRDT-ish behavior.
 
 ---
 
@@ -40,26 +52,24 @@ Data flows are **explicitly split**: identity and billing-adjacent concerns stay
 
 | Decision | Rationale | Cost |
 |----------|-----------|------|
-| **Liveblocks vs. self-hosted WebSocket + CRDT/OT** | Faster time-to-reliable presence and conflict handling; vendor operates scale and protocol edge cases. | Vendor lock-in; cost at scale; data residency must be validated for regulated customers. |
-| **Clerk vs. custom OAuth** | Reduces auth surface area and session edge cases for a reference app. | Less flexibility for exotic IdP flows without Clerk features. |
-| **Fabric.js vs. DOM/SVG-only** | Mature model for object-level canvas editing and hit testing. | Bundle weight and learning curve for advanced scene operations. |
-| **Zustand vs. Redux** | Lower boilerplate for UI-local state that is not the collaborative source of truth. | Team conventions must still avoid duplicating Liveblocks state locally. |
+| **Liveblocks vs. self-hosted WS + CRDT/OT** | Faster path to reliable presence and conflict handling at my current stage of the build. | Vendor lock-in; cost at scale; data residency needs explicit validation for regulated customers. |
+| **Clerk vs. custom OAuth** | Smaller auth surface area for a focused reference implementation. | Less flexibility for exotic IdP flows without leaning on Clerk capabilities. |
+| **Fabric.js vs. DOM/SVG-only** | Strong object-level editing model and hit testing for tools work. | Bundle weight; advanced scene operations take learning time. |
+| **Zustand vs. Redux** | Less boilerplate for UI-local state that is not the collaborative source of truth. | Team discipline required to avoid duplicating Liveblocks state locally. |
 
 ---
 
 ## Security and operations
 
-- **Secrets:** Never commit API keys. Use `.env.local` (gitignored) and CI secrets for deployment.
-- **Environment:** Copy from `.env.example` when present; document every variable in this README or in `docs/` as the project matures.
-- **Dependencies:** Run `npm audit` before releases; pin major upgrades behind review.
+- **Secrets:** never commit keys; use `.env.local` (gitignored) and CI secrets for deploy targets.
+- **Environment:** start from `.env.example` when present; document new variables when they are introduced.
+- **Dependencies:** run `npm audit` before meaningful releases; treat major upgrades as scheduled risk.
 
 ---
 
 ## Provenance
 
-This repository is maintained at `github.com/svdesilva/miro-clone`. Earlier documentation referenced a different clone URL during import; **this remote is canonical**. Product framing, tradeoff analysis, and operational notes in this README are authored for this repository.
-
-Canonical clone:
+This repository is maintained at `github.com/svdesilva/miro-clone`. Older bootstrap docs pointed at a different clone URL during early import; **this remote is canonical**. The narrative and tradeoff notes here are maintained alongside the code I ship in this repo.
 
 ```bash
 git clone https://github.com/svdesilva/miro-clone.git
@@ -72,18 +82,17 @@ cd miro-clone
 
 ### Prerequisites
 
-- Node.js **20 LTS** or newer (18+ minimum if pinned by policy)
-- [Clerk](https://clerk.com) application (API keys)
-- [Liveblocks](https://liveblocks.io) project (API keys)
+- Node.js **20 LTS** (18+ may work, but I develop on 20)
+- Clerk + Liveblocks accounts (free tiers are fine for local work)
 
 ### Setup
 
 ```bash
 npm install
-cp .env.example .env.local   # if .env.example exists; otherwise create from dashboard docs
+cp .env.example .env.local   # if present; otherwise follow dashboard docs
 ```
 
-Configure Clerk and Liveblocks keys in `.env.local` per each vendor’s dashboard.
+Fill `CLERK_*` and Liveblocks keys from each vendor dashboard, then:
 
 ```bash
 npm run dev
@@ -96,30 +105,23 @@ Open `http://localhost:3000`.
 ## Features (current)
 
 - Sign up / sign in (Clerk)
-- Board CRUD (create, rename, delete)
-- Real-time canvas editing with live cursors
-- Drawing tools (shapes, text, freehand) — see codebase for exact tool matrix
+- Board CRUD
+- Real-time canvas editing + live cursors
+- Drawing tools (shapes, text, freehand) — see code for the exact tool matrix
 - Undo / redo
 
 ---
 
-## Roadmap (honest)
+## Docs in this repo
 
-1. **Hosted demo** with environment separation (preview vs. production).
-2. **CI:** lint, typecheck, and tests on every PR.
-3. **Observability:** structured client errors and basic server logging for auth failures and room edge cases.
-4. **Evaluation hooks** (if extended with AI features): tracing, content policy, and offline eval datasets — *only when there is a defined product requirement.*
+- [`ROADMAP.md`](ROADMAP.md)
+- [`docs/metrics-and-outcomes.md`](docs/metrics-and-outcomes.md)
+- [`docs/release-checklist.md`](docs/release-checklist.md)
 
----
-
-## Repository metadata (for maintainers)
-
-Suggested GitHub **Topics:** `nextjs`, `typescript`, `real-time`, `collaboration`, `liveblocks`, `clerk`, `canvas`, `fabricjs`, `product-management`
-
-Suggested **About → Website:** deployed app URL when available.
+Cross-repo ADRs that are not code-bound live in [**decisions**](https://github.com/svdesilva/decisions).
 
 ---
 
 ## License
 
-No `LICENSE` file is present on the default branch yet; **all rights reserved** until a license is published in the repository root.
+All rights reserved until a `LICENSE` file is added to the default branch.
