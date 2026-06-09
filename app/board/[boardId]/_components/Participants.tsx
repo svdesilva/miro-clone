@@ -4,8 +4,8 @@ import { ClientSideSuspense } from "@liveblocks/react/suspense";
 import { useOthers, useSelf } from "@liveblocks/react/suspense";
 
 function ParticipantsInner() {
-  const others = useOthers();
-  const self = useSelf();
+  const _others = useOthers();
+  const _self = useSelf();
 
   // ...your existing rendering logic
   return (

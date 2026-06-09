@@ -43,9 +43,16 @@ export function serializeFabricObject(obj: any, type: string): Partial<CanvasObj
         radius: (obj.radius ?? 50) * (obj.scaleX ?? 1),
       };
     case "sticky-note": {
-      const items: any[] = obj.getObjects?.() ?? [];
-      const textObj = items.find((o) => o.type === "textbox" || o.type === "i-text");
-      const rectObj = items[0];
+      const rawItems: unknown[] = obj.getObjects?.() ?? [];
+      const isFabricChild = (
+        o: unknown
+      ): o is { type?: string; text?: string; fill?: string; fontSize?: number } =>
+        typeof o === "object" && o !== null;
+      const childObjects = rawItems.filter(isFabricChild);
+      const textObj = childObjects.find(
+        (o) => o.type === "textbox" || o.type === "i-text"
+      );
+      const rectObj = childObjects[0];
       return {
         ...base,
         text: textObj?.text ?? "",
