@@ -1,6 +1,6 @@
 # Metrics and outcomes (draft)
 
-This is the metrics framing I use while iterating on a collaboration surface. It is intentionally **outcome-first**: measure whether the product is doing a job, not whether features exist.
+This is the metrics framing used while iterating on a collaboration surface. It is intentionally **outcome-first**: measure whether the product is doing a job, not whether features exist.
 
 ## North-star (candidate)
 
@@ -25,7 +25,7 @@ Definition notes:
 - Prefer **stable event names** and explicit versioning when the schema changes.
 - Never log secrets or raw document payloads in analytics pipelines.
 
-## What I would ship next on metrics
+## Next steps on metrics
 
 - A minimal event taxonomy PRD (10–15 events max) tied to the north-star definition.
 - A dashboard spec for weekly review—not a vanity dashboard.

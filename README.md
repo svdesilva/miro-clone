@@ -1,8 +1,8 @@
 # Collaborative whiteboard (real-time)
 
-I built this to sharpen how I **scope collaboration products** end-to-end: crisp problem framing, explicit tradeoffs, and a codebase that is pleasant for engineers to extend.
+This repository is a **reference build** for collaboration product work end-to-end: crisp problem framing, explicit tradeoffs, and a codebase that is straightforward for engineers to extend.
 
-If you are evaluating how I work with eng partners, start with **Tradeoffs** and the docs in `/docs`.
+For reviewers: start with **Tradeoffs** and the docs in `/docs`.
 
 ---
 
@@ -22,7 +22,7 @@ If you are evaluating how I work with eng partners, start with **Tradeoffs** and
 
 Hosted demo: **coming soon** (Vercel preview + production split). Until then, local run is the fastest way to evaluate behavior.
 
-If you want a guided walkthrough, open an issue with your use case; I will prioritize a short Loom-style recording once hosting is wired.
+For a guided walkthrough, open an issue with the use case; a short recording can be prioritized once hosting is wired.
 
 ---
 
@@ -69,7 +69,7 @@ Identity stays in Clerk; **ephemeral collaborative state** is coordinated throug
 
 ## Provenance
 
-This repository is maintained at `github.com/svdesilva/miro-clone`. Older bootstrap docs pointed at a different clone URL during early import; **this remote is canonical**. The narrative and tradeoff notes here are maintained alongside the code I ship in this repo.
+This repository is maintained at `github.com/svdesilva/miro-clone`. Older bootstrap docs pointed at a different clone URL during early import; **this remote is canonical**. The narrative and tradeoff notes here are maintained alongside the code in this repository.
 
 ```bash
 git clone https://github.com/svdesilva/miro-clone.git
@@ -82,7 +82,7 @@ cd miro-clone
 
 ### Prerequisites
 
-- Node.js **20 LTS** (18+ may work, but I develop on 20)
+- Node.js **20 LTS** (18+ may work; **20** is the tested baseline)
 - Clerk + Liveblocks accounts (free tiers are fine for local work)
 
 ### Setup

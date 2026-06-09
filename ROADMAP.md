@@ -19,4 +19,4 @@ This is a working list, not a promise schedule. Items are ordered by **risk redu
 - Offline-first editing with complex merge semantics
 - Native mobile clients
 
-If you want one of the non-goals prioritized, open an issue with the customer scenario; I will respond with a scope proposal or a deliberate “not yet.”
+If one of the non-goals should be reprioritized, open an issue with the customer scenario; maintainers can respond with a scope proposal or a deliberate “not yet.”
